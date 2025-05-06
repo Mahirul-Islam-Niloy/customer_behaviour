@@ -3,11 +3,11 @@ from flask_cors import CORS
 import pandas as pd
 import os
 
-# Initialize Flask app and enable CORS for frontend
+# Initialize Flask app
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:8001"])
 
-# Load the dataset once at startup
+# Load the dataset
 DATA_PATH = 'customer_feedback_satisfaction.csv'
 df = pd.read_csv(DATA_PATH)
 
@@ -15,12 +15,12 @@ df = pd.read_csv(DATA_PATH)
 def home():
     return "<h2>Welcome to the Customer Feedback API</h2>"
 
-# 🔍 Filtered data endpoint
+# 🔍 Filterable dataset with pagination
 @app.route('/api/data', methods=['GET'])
 def get_filtered_data():
     filtered = df.copy()
 
-    # Extract filter parameters
+    # Filters
     country = request.args.get('country')
     gender = request.args.get('gender')
     age = request.args.get('age')
@@ -62,13 +62,25 @@ def get_filtered_data():
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-# 📊 Clean summary stats as JSON
+# 📊 Clean merged summary
 @app.route('/api/summary', methods=['GET'])
-def get_summary():
-    summary = df.describe(include='all').reset_index()
-    return jsonify(summary.to_dict(orient='records'))
+def get_full_summary():
+    numeric_summary = df.describe().to_dict()
+    categorical_summary = df.describe(include=['object']).to_dict()
+    summary = {**numeric_summary, **categorical_summary}
+    return jsonify(summary)
 
-# 🎯 Quick filter by feedback score (low/medium/high)
+# 📊 Numeric-only summary
+@app.route('/api/summary/numeric', methods=['GET'])
+def get_numeric_summary():
+    return jsonify(df.describe().to_dict())
+
+# 📊 Categorical-only summary
+@app.route('/api/summary/categorical', methods=['GET'])
+def get_categorical_summary():
+    return jsonify(df.describe(include=['object']).to_dict())
+
+# 🎯 Quick filter by feedback score
 @app.route('/api/feedback/<level>', methods=['GET'])
 def get_feedback_level(level):
     filtered = df[df['FeedbackScore'].str.lower() == level.lower()]
@@ -85,7 +97,7 @@ def get_feedback_level(level):
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-# 🌐 Use dynamic port for Render or fallback to 5000
+# 🌐 Render-compatible port setup
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
