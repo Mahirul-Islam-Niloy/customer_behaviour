@@ -3,7 +3,7 @@ from flask_cors import CORS
 import pandas as pd
 import os
 
-# Initialize Flask app and enable CORS
+# Initialize Flask app
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:8001"])
 
@@ -13,30 +13,26 @@ df = pd.read_csv(DATA_PATH)
 
 @app.route('/')
 def home():
-    return "<h2>Welcome to the Customer Feedback API. Try /api/data, /api/summary, or /api/feedback/high</h2>"
+    return "<h2>Welcome to the Customer Feedback API</h2>"
 
-# 🔍 Filterable API endpoint
+# 🔍 Filterable dataset endpoint
 @app.route('/api/data', methods=['GET'])
 def get_filtered_data():
     filtered = df.copy()
 
-    # Extract query parameters
+    # Extract filters from query parameters
     country = request.args.get('country')
     gender = request.args.get('gender')
-    feedback = request.args.get('feedbackscore')
-    loyalty = request.args.get('loyalty')
     age = request.args.get('age')
     satisfaction = request.args.get('satisfactionscore')
+    feedbackscore = request.args.get('feedbackscore')
+    loyaltylevel = request.args.get('loyalty')
 
-    # Apply filters
+    # Apply filters if provided
     if country:
         filtered = filtered[filtered['Country'].str.lower() == country.lower()]
     if gender:
         filtered = filtered[filtered['Gender'].str.lower() == gender.lower()]
-    if feedback:
-        filtered = filtered[filtered['FeedbackScore'].str.lower() == feedback.lower()]
-    if loyalty:
-        filtered = filtered[filtered['LoyaltyLevel'].str.lower() == loyalty.lower()]
     if age:
         try:
             filtered = filtered[filtered['Age'] == int(age)]
@@ -47,6 +43,10 @@ def get_filtered_data():
             filtered = filtered[filtered['SatisfactionScore'] == float(satisfaction)]
         except:
             pass
+    if feedbackscore:
+        filtered = filtered[filtered['FeedbackScore'].str.lower() == feedbackscore.lower()]
+    if loyaltylevel:
+        filtered = filtered[filtered['LoyaltyLevel'].str.lower() == loyaltylevel.lower()]
 
     # Pagination
     page = int(request.args.get('page', 1))
@@ -62,12 +62,12 @@ def get_filtered_data():
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-# 📊 Summary stats
+# 📊 Summary statistics
 @app.route('/api/summary', methods=['GET'])
 def get_summary():
     return jsonify(df.describe(include='all').to_dict())
 
-# 🎯 Feedback score filter (Low, Medium, High)
+# 🎯 Filter by feedback score via path param (Low, Medium, High)
 @app.route('/api/feedback/<level>', methods=['GET'])
 def get_feedback_level(level):
     filtered = df[df['FeedbackScore'].str.lower() == level.lower()]
@@ -84,7 +84,7 @@ def get_feedback_level(level):
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-# 🌐 Dynamic port support for Render
+# 🌐 Dynamic port for deployment (e.g., Render)
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
