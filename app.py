@@ -1,34 +1,61 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
+from flask_cors import CORS
 import pandas as pd
+import os
 
+# Initialize Flask app
 app = Flask(__name__)
+CORS(app, origins=["http://localhost:8001"])  # Allow your frontend to access API
 
-# Load your dataset
+# Load the dataset once
 DATA_PATH = 'customer_feedback_satisfaction.csv'
 df = pd.read_csv(DATA_PATH)
 
-# Route 1: Return full dataset
+# ✅ Root route (optional)
+@app.route('/')
+def home():
+    return "<h2>Welcome to the Customer Feedback API. Try /api/data, /api/summary or /api/feedback/low</h2>"
+
+# ✅ Paginated full dataset
 @app.route('/api/data', methods=['GET'])
 def get_full_data():
-    return jsonify(df.to_dict(orient='records'))
+    page = int(request.args.get('page', 1))
+    limit = int(request.args.get('limit', 50))
+    start = (page - 1) * limit
+    end = start + limit
+    total = len(df)
 
-# Route 2: Return statistical summary
+    return jsonify({
+        'total_records': total,
+        'page': page,
+        'limit': limit,
+        'data': df.iloc[start:end].to_dict(orient='records')
+    })
+
+# ✅ Summary statistics
 @app.route('/api/summary', methods=['GET'])
 def get_summary():
     summary = df.describe(include='all').to_dict()
     return jsonify(summary)
 
-# Route 3: Return data filtered by FeedbackScore
+# ✅ Filter by feedback score + pagination
 @app.route('/api/feedback/<level>', methods=['GET'])
 def get_feedback_level(level):
-    filtered_df = df[df['FeedbackScore'].str.lower() == level.lower()]
-    return jsonify(filtered_df.to_dict(orient='records'))
-@app.route('/')
-def home():
-    return "<h2>Welcome to the Customer Feedback API!<br>Use endpoints like /api/data, /api/summary, or /api/feedback/low</h2>"
+    filtered = df[df['FeedbackScore'].str.lower() == level.lower()]
+    page = int(request.args.get('page', 1))
+    limit = int(request.args.get('limit', 50))
+    start = (page - 1) * limit
+    end = start + limit
+    total = len(filtered)
 
-import os
+    return jsonify({
+        'total_records': total,
+        'page': page,
+        'limit': limit,
+        'data': filtered.iloc[start:end].to_dict(orient='records')
+    })
 
+# ✅ Required for Render hosting
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
