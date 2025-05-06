@@ -3,11 +3,11 @@ from flask_cors import CORS
 import pandas as pd
 import os
 
-# Initialize Flask app
+# Initialize Flask app and enable CORS for frontend
 app = Flask(__name__)
 CORS(app, origins=["http://localhost:8001"])
 
-# Load dataset
+# Load the dataset once at startup
 DATA_PATH = 'customer_feedback_satisfaction.csv'
 df = pd.read_csv(DATA_PATH)
 
@@ -15,12 +15,12 @@ df = pd.read_csv(DATA_PATH)
 def home():
     return "<h2>Welcome to the Customer Feedback API</h2>"
 
-# 🔍 Filterable dataset endpoint
+# 🔍 Filtered data endpoint
 @app.route('/api/data', methods=['GET'])
 def get_filtered_data():
     filtered = df.copy()
 
-    # Extract filters from query parameters
+    # Extract filter parameters
     country = request.args.get('country')
     gender = request.args.get('gender')
     age = request.args.get('age')
@@ -28,7 +28,7 @@ def get_filtered_data():
     feedbackscore = request.args.get('feedbackscore')
     loyaltylevel = request.args.get('loyalty')
 
-    # Apply filters if provided
+    # Apply filters
     if country:
         filtered = filtered[filtered['Country'].str.lower() == country.lower()]
     if gender:
@@ -62,12 +62,13 @@ def get_filtered_data():
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-# 📊 Summary statistics
+# 📊 Clean summary stats as JSON
 @app.route('/api/summary', methods=['GET'])
 def get_summary():
-    return jsonify(df.describe(include='all').to_dict())
+    summary = df.describe(include='all').reset_index()
+    return jsonify(summary.to_dict(orient='records'))
 
-# 🎯 Filter by feedback score via path param (Low, Medium, High)
+# 🎯 Quick filter by feedback score (low/medium/high)
 @app.route('/api/feedback/<level>', methods=['GET'])
 def get_feedback_level(level):
     filtered = df[df['FeedbackScore'].str.lower() == level.lower()]
@@ -84,7 +85,7 @@ def get_feedback_level(level):
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-# 🌐 Dynamic port for deployment (e.g., Render)
+# 🌐 Use dynamic port for Render or fallback to 5000
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
