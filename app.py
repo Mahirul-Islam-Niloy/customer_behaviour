@@ -5,7 +5,12 @@ import os
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:8001"])
+
+# ✅ Enable CORS for localhost and your friend's Netlify app
+CORS(app, origins=[
+    "http://localhost:8001",
+    "https://lambent-moxie-c5f681.netlify.app"
+])
 
 # Load the dataset
 DATA_PATH = 'customer_feedback_satisfaction.csv'
@@ -62,7 +67,7 @@ def get_filtered_data():
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-# 📊 Clean merged summary
+# 📊 Full summary: numeric + categorical
 @app.route('/api/summary', methods=['GET'])
 def get_full_summary():
     numeric_summary = df.describe().to_dict()
@@ -97,7 +102,7 @@ def get_feedback_level(level):
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-# 🌐 Render-compatible port setup
+# 🌐 Port setup for Render hosting
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
