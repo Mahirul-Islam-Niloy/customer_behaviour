@@ -102,15 +102,17 @@ def get_feedback_level(level):
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-# Updated clustering endpoint to return ALL adverse customers regardless of cluster
 @app.route('/api/clustering', methods=['GET'])
 def get_clustered_customers():
-    features = df[['ProductQuality', 'ServiceQuality', 'SatisfactionScore', 'PurchaseFrequency']].copy()
+    # Clean the dataset to avoid missing values
+    df_clean = df.dropna(subset=['ProductQuality', 'ServiceQuality', 'SatisfactionScore', 'FeedbackScore', 'PurchaseFrequency'])
+
+    features = df_clean[['ProductQuality', 'ServiceQuality', 'SatisfactionScore', 'PurchaseFrequency']].copy()
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(features)
 
     kmeans = KMeans(n_clusters=3, random_state=42)
-    df['Cluster'] = kmeans.fit_predict(X_scaled)
+    df_clean['Cluster'] = kmeans.fit_predict(X_scaled)
 
     def label_adverse(row):
         if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
@@ -120,21 +122,23 @@ def get_clustered_customers():
             return 'Adverse'
         return 'Normal'
 
-    df['BehaviorType'] = df.apply(label_adverse, axis=1)
+    df_clean['BehaviorType'] = df_clean.apply(label_adverse, axis=1)
 
-    # Return all adverse customers (ignore cluster grouping)
-    adverse_customers = df[df['BehaviorType'] == 'Adverse']
+    # Return all adverse customers regardless of cluster
+    adverse_customers = df_clean[df_clean['BehaviorType'] == 'Adverse']
 
     page = int(request.args.get('page', 1))
     limit = int(request.args.get('limit', 50))
     start = (page - 1) * limit
     end = start + limit
 
+    paginated_data = adverse_customers.iloc[start:end]
+
     return jsonify({
         "total_records": len(adverse_customers),
         "page": page,
         "limit": limit,
-        "data": adverse_customers.iloc[start:end].to_dict(orient='records')
+        "data": paginated_data.to_dict(orient='records')
     })
 
 @app.route('/api/patterns', methods=['GET'])
@@ -199,8 +203,6 @@ def get_pattern_rules():
     top_rules = adverse_rules[['antecedents', 'consequents', 'support', 'confidence', 'lift']].head(10)
 
     return jsonify(top_rules.to_dict(orient='records'))
-
-# Your existing /api/adverse-upload route can go here if you want
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
