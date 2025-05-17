@@ -141,13 +141,13 @@ def get_pattern_rules():
     df_copy = df.copy()
 
     def bin_quality(x):
-        return 'High' if x >= 7 else 'Low'
+        return 'High' if x >= 9 else 'Low'
 
     def bin_satisfaction(x):
-        return 'High' if x >= 70 else 'Low'
+        return 'High' if x >= 85 else 'Low'
 
     def bin_frequency(x):
-        return 'High' if x >= 5 else 'Low'
+        return 'High' if x >= 15 else 'Low'
 
     df_copy['ProductQuality_Bin'] = df_copy['ProductQuality'].apply(bin_quality)
     df_copy['ServiceQuality_Bin'] = df_copy['ServiceQuality'].apply(bin_quality)
