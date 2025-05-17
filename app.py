@@ -113,12 +113,23 @@ def get_clustered_customers():
     kmeans = KMeans(n_clusters=3, random_state=42)
     df['Cluster'] = kmeans.fit_predict(X_scaled)
 
-    cluster_means = df.groupby('Cluster')['SatisfactionScore'].mean()
-    adverse_cluster = cluster_means.idxmin()
-    df['BehaviorType'] = df['Cluster'].apply(lambda x: 'Adverse' if x == adverse_cluster else 'Normal')
+    # Apply new adverse behavior logic to every row
+    def label_adverse(row):
+        if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
+           (row['ProductQuality'] < 5 and row['FeedbackScore'] == 'High') or \
+           (row['ServiceQuality'] > 8 and row['SatisfactionScore'] < 85) or \
+           (row['ServiceQuality'] < 4 and row['SatisfactionScore'] > 85):
+            return 'Adverse'
+        return 'Normal'
 
-    adverse_customers = df[df['BehaviorType'] == 'Adverse']
+    df['BehaviorType'] = df.apply(label_adverse, axis=1)
 
+    # Find the cluster with the most "Adverse" customers
+    adverse_cluster = df[df['BehaviorType'] == 'Adverse']['Cluster'].mode()[0]
+
+    adverse_customers = df[df['Cluster'] == adverse_cluster]
+
+    # Pagination logic
     page = int(request.args.get('page', 1))
     limit = int(request.args.get('limit', 50))
     start = (page - 1) * limit
@@ -141,13 +152,13 @@ def get_pattern_rules():
     df_copy = df.copy()
 
     def bin_quality(x):
-        return 'High' if x >= 9 else 'Low'
+        return 'High' if x >= 7 else 'Low'
 
     def bin_satisfaction(x):
-        return 'High' if x >= 85 else 'Low'
+        return 'High' if x >= 70 else 'Low'
 
     def bin_frequency(x):
-        return 'High' if x >= 15 else 'Low'
+        return 'High' if x >= 5 else 'Low'
 
     df_copy['ProductQuality_Bin'] = df_copy['ProductQuality'].apply(bin_quality)
     df_copy['ServiceQuality_Bin'] = df_copy['ServiceQuality'].apply(bin_quality)
@@ -155,19 +166,20 @@ def get_pattern_rules():
     df_copy['PurchaseFreq_Bin'] = df_copy['PurchaseFrequency'].apply(bin_frequency)
     df_copy['Feedback_Bin'] = df_copy['FeedbackScore'].str.strip().str.title()
 
+    # Apply new adverse behavior logic to classify each row
     def label_adverse(row):
-        if row['ProductQuality_Bin'] == 'High' and row['ServiceQuality_Bin'] == 'High':
-            return 'True' if not (row['Satisfaction_Bin'] == 'High' and row['Feedback_Bin'] == 'High') else 'False'
-        elif row['ProductQuality_Bin'] == 'Low' and row['ServiceQuality_Bin'] == 'Low':
-            return 'True' if not (row['Satisfaction_Bin'] == 'Low' and row['Feedback_Bin'] == 'Low') else 'False'
-        else:
+        if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
+           (row['ProductQuality'] < 5 and row['FeedbackScore'] == 'High') or \
+           (row['ServiceQuality'] > 8 and row['SatisfactionScore'] < 85) or \
+           (row['ServiceQuality'] < 4 and row['SatisfactionScore'] > 85):
             return 'True'
+        return 'False'
 
     df_copy['Adverse'] = df_copy.apply(label_adverse, axis=1)
 
     transactions = []
     for _, row in df_copy.iterrows():
-        transactions.append([
+        transactions.append([ 
             f"ProductQuality={row['ProductQuality_Bin']}",
             f"ServiceQuality={row['ServiceQuality_Bin']}",
             f"Satisfaction={row['Satisfaction_Bin']}",
