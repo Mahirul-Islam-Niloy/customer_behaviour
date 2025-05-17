@@ -4,7 +4,6 @@ import pandas as pd
 import os
 import io
 
-# Additional imports for clustering and pattern mining
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 
@@ -103,8 +102,7 @@ def get_feedback_level(level):
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-# ------- New clustering endpoint --------
-
+# Updated clustering endpoint to return ALL adverse customers regardless of cluster
 @app.route('/api/clustering', methods=['GET'])
 def get_clustered_customers():
     features = df[['ProductQuality', 'ServiceQuality', 'SatisfactionScore', 'PurchaseFrequency']].copy()
@@ -114,7 +112,6 @@ def get_clustered_customers():
     kmeans = KMeans(n_clusters=3, random_state=42)
     df['Cluster'] = kmeans.fit_predict(X_scaled)
 
-    # Apply new adverse behavior logic to every row
     def label_adverse(row):
         if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
            (row['ProductQuality'] < 5 and row['FeedbackScore'] == 'High') or \
@@ -125,9 +122,8 @@ def get_clustered_customers():
 
     df['BehaviorType'] = df.apply(label_adverse, axis=1)
 
-    adverse_cluster = df[df['BehaviorType'] == 'Adverse']['Cluster'].mode()[0]
-
-    adverse_customers = df[df['Cluster'] == adverse_cluster]
+    # Return all adverse customers (ignore cluster grouping)
+    adverse_customers = df[df['BehaviorType'] == 'Adverse']
 
     page = int(request.args.get('page', 1))
     limit = int(request.args.get('limit', 50))
@@ -140,8 +136,6 @@ def get_clustered_customers():
         "limit": limit,
         "data": adverse_customers.iloc[start:end].to_dict(orient='records')
     })
-
-# ------- New pattern mining endpoint --------
 
 @app.route('/api/patterns', methods=['GET'])
 def get_pattern_rules():
@@ -206,46 +200,7 @@ def get_pattern_rules():
 
     return jsonify(top_rules.to_dict(orient='records'))
 
-# ------- New file upload endpoint --------
-
-@app.route('/api/adverse-upload', methods=['POST'])
-def adverse_upload():
-    if 'file' not in request.files:
-        return jsonify({"error": "No file part"}), 400
-
-    file = request.files['file']
-
-    if file.filename == '':
-        return jsonify({"error": "No selected file"}), 400
-
-    try:
-        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
-        uploaded_df = pd.read_csv(stream)
-
-        required_cols = ['CustomerID', 'ProductQuality', 'ServiceQuality', 'SatisfactionScore', 'FeedbackScore']
-        for col in required_cols:
-            if col not in uploaded_df.columns:
-                return jsonify({"error": f"Missing required column: {col}"}), 400
-
-        def label_adverse(row):
-            if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
-               (row['ProductQuality'] < 5 and row['FeedbackScore'] == 'High') or \
-               (row['ServiceQuality'] > 8 and row['SatisfactionScore'] < 85) or \
-               (row['ServiceQuality'] < 4 and row['SatisfactionScore'] > 85):
-                return 'Adverse'
-            return 'Normal'
-
-        uploaded_df['BehaviorType'] = uploaded_df.apply(label_adverse, axis=1)
-
-        adverse_customers = uploaded_df[uploaded_df['BehaviorType'] == 'Adverse']
-
-        data = adverse_customers.to_dict(orient='records')
-
-        return jsonify({"data": data})
-
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
+# Your existing /api/adverse-upload route can go here if you want
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
