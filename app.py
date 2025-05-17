@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import pandas as pd
 import os
+import io
 
 # Additional imports for clustering and pattern mining
 from sklearn.cluster import KMeans
@@ -124,12 +125,10 @@ def get_clustered_customers():
 
     df['BehaviorType'] = df.apply(label_adverse, axis=1)
 
-    # Find the cluster with the most "Adverse" customers
     adverse_cluster = df[df['BehaviorType'] == 'Adverse']['Cluster'].mode()[0]
 
     adverse_customers = df[df['Cluster'] == adverse_cluster]
 
-    # Pagination logic
     page = int(request.args.get('page', 1))
     limit = int(request.args.get('limit', 50))
     start = (page - 1) * limit
@@ -166,7 +165,6 @@ def get_pattern_rules():
     df_copy['PurchaseFreq_Bin'] = df_copy['PurchaseFrequency'].apply(bin_frequency)
     df_copy['Feedback_Bin'] = df_copy['FeedbackScore'].str.strip().str.title()
 
-    # Apply new adverse behavior logic to classify each row
     def label_adverse(row):
         if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
            (row['ProductQuality'] < 5 and row['FeedbackScore'] == 'High') or \
@@ -179,7 +177,7 @@ def get_pattern_rules():
 
     transactions = []
     for _, row in df_copy.iterrows():
-        transactions.append([ 
+        transactions.append([
             f"ProductQuality={row['ProductQuality_Bin']}",
             f"ServiceQuality={row['ServiceQuality_Bin']}",
             f"Satisfaction={row['Satisfaction_Bin']}",
@@ -207,6 +205,47 @@ def get_pattern_rules():
     top_rules = adverse_rules[['antecedents', 'consequents', 'support', 'confidence', 'lift']].head(10)
 
     return jsonify(top_rules.to_dict(orient='records'))
+
+# ------- New file upload endpoint --------
+
+@app.route('/api/adverse-upload', methods=['POST'])
+def adverse_upload():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+
+    file = request.files['file']
+
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+
+    try:
+        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+        uploaded_df = pd.read_csv(stream)
+
+        required_cols = ['CustomerID', 'ProductQuality', 'ServiceQuality', 'SatisfactionScore', 'FeedbackScore']
+        for col in required_cols:
+            if col not in uploaded_df.columns:
+                return jsonify({"error": f"Missing required column: {col}"}), 400
+
+        def label_adverse(row):
+            if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
+               (row['ProductQuality'] < 5 and row['FeedbackScore'] == 'High') or \
+               (row['ServiceQuality'] > 8 and row['SatisfactionScore'] < 85) or \
+               (row['ServiceQuality'] < 4 and row['SatisfactionScore'] > 85):
+                return 'Adverse'
+            return 'Normal'
+
+        uploaded_df['BehaviorType'] = uploaded_df.apply(label_adverse, axis=1)
+
+        adverse_customers = uploaded_df[uploaded_df['BehaviorType'] == 'Adverse']
+
+        data = adverse_customers.to_dict(orient='records')
+
+        return jsonify({"data": data})
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
