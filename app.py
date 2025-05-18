@@ -204,6 +204,24 @@ def get_pattern_rules():
 
     return jsonify(top_rules.to_dict(orient='records'))
 
+# New API endpoint for calculating adverse and normal behavior percentages
+@app.route('/api/behavior-stats', methods=['GET'])
+def get_behavior_stats():
+    # Calculate the total number of customers and the number of adverse and normal customers
+    total_customers = len(df)
+    adverse_customers = len(df[df['BehaviorType'] == 'Adverse'])
+    normal_customers = total_customers - adverse_customers
+
+    # Calculate the percentages
+    adverse_percentage = (adverse_customers / total_customers) * 100
+    normal_percentage = (normal_customers / total_customers) * 100
+
+    return jsonify({
+        "adverse_percentage": adverse_percentage,
+        "normal_percentage": normal_percentage,
+        "total_customers": total_customers
+    })
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
