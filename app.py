@@ -24,6 +24,29 @@ CORS(app, origins=[
 DATA_PATH = 'customer_feedback_satisfaction.csv'
 df = pd.read_csv(DATA_PATH)
 
+# Preprocess the DataFrame and ensure BehaviorType is properly populated
+def preprocess_data():
+    # Check if BehaviorType exists and apply the label_adverse function
+    if 'BehaviorType' not in df.columns:
+        print("Creating BehaviorType column...")
+
+        def label_adverse(row):
+            # Logic for labeling adverse behavior
+            if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
+               (row['ProductQuality'] < 5 and row['FeedbackScore'] == 'High') or \
+               (row['ServiceQuality'] > 8 and row['SatisfactionScore'] < 85) or \
+               (row['ServiceQuality'] < 4 and row['SatisfactionScore'] > 85):
+                return 'Adverse'
+            return 'Normal'
+
+        # Apply the label_adverse function to create the BehaviorType column
+        df['BehaviorType'] = df.apply(label_adverse, axis=1)
+
+        print("BehaviorType column created successfully.")
+
+# Preprocess the data before API calls
+preprocess_data()
+
 @app.route('/')
 def home():
     return "<h2>Welcome to the Customer Feedback API</h2>"
@@ -122,6 +145,7 @@ def get_clustered_customers():
             return 'Adverse'
         return 'Normal'
 
+    # Apply the label_adverse function to the DataFrame to populate the BehaviorType column
     df_clean['BehaviorType'] = df_clean.apply(label_adverse, axis=1)
 
     # Return all adverse customers regardless of cluster
@@ -207,20 +231,26 @@ def get_pattern_rules():
 # New API endpoint for calculating adverse and normal behavior percentages
 @app.route('/api/behavior-stats', methods=['GET'])
 def get_behavior_stats():
-    # Calculate the total number of customers and the number of adverse and normal customers
-    total_customers = len(df)
-    adverse_customers = len(df[df['BehaviorType'] == 'Adverse'])
-    normal_customers = total_customers - adverse_customers
+    try:
+        # Ensure 'BehaviorType' exists in the DataFrame
+        if 'BehaviorType' not in df.columns:
+            raise KeyError("'BehaviorType' column not found")
 
-    # Calculate the percentages
-    adverse_percentage = (adverse_customers / total_customers) * 100
-    normal_percentage = (normal_customers / total_customers) * 100
+        total_customers = len(df)
+        adverse_customers = df[df['BehaviorType'] == 'Adverse']
+        normal_customers = df[df['BehaviorType'] == 'Normal']
 
-    return jsonify({
-        "adverse_percentage": adverse_percentage,
-        "normal_percentage": normal_percentage,
-        "total_customers": total_customers
-    })
+        adverse_percentage = (len(adverse_customers) / total_customers) * 100
+        normal_percentage = (len(normal_customers) / total_customers) * 100
+
+        return jsonify({
+            "adverse_percentage": adverse_percentage,
+            "normal_percentage": normal_percentage,
+            "total_customers": total_customers
+        })
+    except Exception as e:
+        print("Error in calculating behavior stats:", e)
+        return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
