@@ -31,7 +31,7 @@ def preprocess_data():
             )
             second_group = (
                 row['LoyaltyLevel'] == 'Gold' and
-                row['PurchaseFrequency'] < 15
+                row['PurchaseFrequency'] < 14
             )
             if first_group and second_group:
                 return 'Adverse'
@@ -156,7 +156,7 @@ def get_pattern_rules():
         )
         second_group = (
             row['LoyaltyLevel'] == 'Gold' and
-            row['PurchaseFrequency'] < 15
+            row['PurchaseFrequency'] < 14
         )
         if first_group and second_group:
             return 'True'
