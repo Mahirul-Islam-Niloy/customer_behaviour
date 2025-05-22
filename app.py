@@ -2,10 +2,6 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import pandas as pd
 import os
-import io
-
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
 
 try:
     from mlxtend.frequent_patterns import apriori, association_rules
@@ -24,27 +20,26 @@ CORS(app, origins=[
 DATA_PATH = 'customer_feedback_satisfaction.csv'
 df = pd.read_csv(DATA_PATH)
 
-# Preprocess the DataFrame and ensure BehaviorType is properly populated
 def preprocess_data():
-    # Check if BehaviorType exists and apply the label_adverse function
     if 'BehaviorType' not in df.columns:
         print("Creating BehaviorType column...")
 
         def label_adverse(row):
-            # Logic for labeling adverse behavior
-            if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
-               (row['ProductQuality'] < 5 and row['FeedbackScore'] == 'High') or \
-               (row['ServiceQuality'] > 8 and row['SatisfactionScore'] < 85) or \
-               (row['ServiceQuality'] < 4 and row['SatisfactionScore'] > 85):
+            first_group = (
+                (row['ProductQuality'] >= 9 and row['FeedbackScore'] in ['Low', 'Medium']) or
+                (row['ServiceQuality'] >= 9 and row['SatisfactionScore'] < 90)
+            )
+            second_group = (
+                row['LoyaltyLevel'] == 'Gold' and
+                row['PurchaseFrequency'] < 15
+            )
+            if first_group and second_group:
                 return 'Adverse'
             return 'Normal'
 
-        # Apply the label_adverse function to create the BehaviorType column
         df['BehaviorType'] = df.apply(label_adverse, axis=1)
-
         print("BehaviorType column created successfully.")
 
-# Preprocess the data before API calls
 preprocess_data()
 
 @app.route('/')
@@ -125,46 +120,6 @@ def get_feedback_level(level):
         'data': filtered.iloc[start:end].to_dict(orient='records')
     })
 
-@app.route('/api/clustering', methods=['GET'])
-def get_clustered_customers():
-    # Clean the dataset to avoid missing values
-    df_clean = df.dropna(subset=['ProductQuality', 'ServiceQuality', 'SatisfactionScore', 'FeedbackScore', 'PurchaseFrequency'])
-
-    features = df_clean[['ProductQuality', 'ServiceQuality', 'SatisfactionScore', 'PurchaseFrequency']].copy()
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(features)
-
-    kmeans = KMeans(n_clusters=3, random_state=42)
-    df_clean['Cluster'] = kmeans.fit_predict(X_scaled)
-
-    def label_adverse(row):
-        if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
-           (row['ProductQuality'] < 5 and row['FeedbackScore'] == 'High') or \
-           (row['ServiceQuality'] > 8 and row['SatisfactionScore'] < 85) or \
-           (row['ServiceQuality'] < 4 and row['SatisfactionScore'] > 85):
-            return 'Adverse'
-        return 'Normal'
-
-    # Apply the label_adverse function to the DataFrame to populate the BehaviorType column
-    df_clean['BehaviorType'] = df_clean.apply(label_adverse, axis=1)
-
-    # Return all adverse customers regardless of cluster
-    adverse_customers = df_clean[df_clean['BehaviorType'] == 'Adverse']
-
-    page = int(request.args.get('page', 1))
-    limit = int(request.args.get('limit', 50))
-    start = (page - 1) * limit
-    end = start + limit
-
-    paginated_data = adverse_customers.iloc[start:end]
-
-    return jsonify({
-        "total_records": len(adverse_customers),
-        "page": page,
-        "limit": limit,
-        "data": paginated_data.to_dict(orient='records')
-    })
-
 @app.route('/api/patterns', methods=['GET'])
 def get_pattern_rules():
     if not MLXTEND_AVAILABLE:
@@ -188,10 +143,15 @@ def get_pattern_rules():
     df_copy['Feedback_Bin'] = df_copy['FeedbackScore'].str.strip().str.title()
 
     def label_adverse(row):
-        if (row['ProductQuality'] > 9 and row['FeedbackScore'] == 'Low') or \
-           (row['ProductQuality'] < 5 and row['FeedbackScore'] == 'High') or \
-           (row['ServiceQuality'] > 8 and row['SatisfactionScore'] < 85) or \
-           (row['ServiceQuality'] < 4 and row['SatisfactionScore'] > 85):
+        first_group = (
+            (row['ProductQuality'] >= 9 and row['FeedbackScore'] in ['Low', 'Medium']) or
+            (row['ServiceQuality'] >= 9 and row['SatisfactionScore'] < 90)
+        )
+        second_group = (
+            row['LoyaltyLevel'] == 'Gold' and
+            row['PurchaseFrequency'] < 15
+        )
+        if first_group and second_group:
             return 'True'
         return 'False'
 
@@ -228,11 +188,9 @@ def get_pattern_rules():
 
     return jsonify(top_rules.to_dict(orient='records'))
 
-# New API endpoint for calculating adverse and normal behavior percentages
 @app.route('/api/behavior-stats', methods=['GET'])
 def get_behavior_stats():
     try:
-        # Ensure 'BehaviorType' exists in the DataFrame
         if 'BehaviorType' not in df.columns:
             raise KeyError("'BehaviorType' column not found")
 
