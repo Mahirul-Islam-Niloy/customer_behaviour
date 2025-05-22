@@ -3,6 +3,13 @@ from flask_cors import CORS
 import pandas as pd
 import os
 
+try:
+    from mlxtend.frequent_patterns import apriori, association_rules
+    from mlxtend.preprocessing import TransactionEncoder
+    MLXTEND_AVAILABLE = True
+except ImportError:
+    MLXTEND_AVAILABLE = False
+
 app = Flask(__name__)
 
 CORS(app, origins=[
@@ -13,33 +20,32 @@ CORS(app, origins=[
 DATA_PATH = 'customer_feedback_satisfaction.csv'
 df = pd.read_csv(DATA_PATH)
 
-# Preprocess the DataFrame and ensure BehaviorType is properly populated
 def preprocess_data():
-    # Check if 'BehaviorType' exists and apply the label_adverse function
     if 'BehaviorType' not in df.columns:
         print("Creating BehaviorType column...")
 
         def label_adverse(row):
-            # Logic for labeling adverse behavior based on the conditions provided
-            if ((row['ProductQuality'] >= 9 and row['FeedbackScore'] in ['Low', 'Medium']) or 
-                (row['ServiceQuality'] >= 9 and row['SatisfactionScore'] < 90)):
-                if (row['LoyaltyLevel'] == 'Gold' and row['PurchaseFrequency'] < 15):
-                    return 'Adverse'
+            first_group = (
+                (row['ProductQuality'] >= 9 and row['FeedbackScore'] in ['Low', 'Medium']) or
+                (row['ServiceQuality'] >= 9 and row['SatisfactionScore'] < 90)
+            )
+            second_group = (
+                row['LoyaltyLevel'] == 'Gold' and
+                row['PurchaseFrequency'] < 15
+            )
+            if first_group and second_group:
+                return 'Adverse'
             return 'Normal'
 
-        # Apply the label_adverse function to create the BehaviorType column
         df['BehaviorType'] = df.apply(label_adverse, axis=1)
-
         print("BehaviorType column created successfully.")
 
-# Apply the preprocessing before handling API requests
 preprocess_data()
 
 @app.route('/')
 def home():
     return "<h2>Welcome to the Customer Feedback API</h2>"
 
-# Endpoint to get filtered customer data
 @app.route('/api/data', methods=['GET'])
 def get_filtered_data():
     filtered = df.copy()
@@ -90,10 +96,111 @@ def get_full_summary():
     summary = {**numeric_summary, **categorical_summary}
     return jsonify(summary)
 
-# Endpoint to get adverse behavior stats
+@app.route('/api/summary/numeric', methods=['GET'])
+def get_numeric_summary():
+    return jsonify(df.describe().to_dict())
+
+@app.route('/api/summary/categorical', methods=['GET'])
+def get_categorical_summary():
+    return jsonify(df.describe(include=['object']).to_dict())
+
+@app.route('/api/feedback/<level>', methods=['GET'])
+def get_feedback_level(level):
+    filtered = df[df['FeedbackScore'].str.lower() == level.lower()]
+    page = int(request.args.get('page', 1))
+    limit = int(request.args.get('limit', 50))
+    start = (page - 1) * limit
+    end = start + limit
+    total = len(filtered)
+
+    return jsonify({
+        'total_records': total,
+        'page': page,
+        'limit': limit,
+        'data': filtered.iloc[start:end].to_dict(orient='records')
+    })
+@app.route('/api/adverse-count', methods=['GET'])
+def get_adverse_count():
+    try:
+        adverse_customers = df[df['BehaviorType'] == 'Adverse']
+        count = len(adverse_customers)
+        return jsonify({"adverse_count": count})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+@app.route('/api/patterns', methods=['GET'])
+def get_pattern_rules():
+    if not MLXTEND_AVAILABLE:
+        return jsonify({"error": "mlxtend library not installed"}), 500
+
+    df_copy = df.copy()
+
+    def bin_quality(x):
+        return 'High' if x >= 7 else 'Low'
+
+    def bin_satisfaction(x):
+        return 'High' if x >= 70 else 'Low'
+
+    def bin_frequency(x):
+        return 'High' if x >= 5 else 'Low'
+
+    df_copy['ProductQuality_Bin'] = df_copy['ProductQuality'].apply(bin_quality)
+    df_copy['ServiceQuality_Bin'] = df_copy['ServiceQuality'].apply(bin_quality)
+    df_copy['Satisfaction_Bin'] = df_copy['SatisfactionScore'].apply(bin_satisfaction)
+    df_copy['PurchaseFreq_Bin'] = df_copy['PurchaseFrequency'].apply(bin_frequency)
+    df_copy['Feedback_Bin'] = df_copy['FeedbackScore'].str.strip().str.title()
+
+    def label_adverse(row):
+        first_group = (
+            (row['ProductQuality'] >= 9 and row['FeedbackScore'] in ['Low', 'Medium']) or
+            (row['ServiceQuality'] >= 9 and row['SatisfactionScore'] < 90)
+        )
+        second_group = (
+            row['LoyaltyLevel'] == 'Gold' and
+            row['PurchaseFrequency'] < 15
+        )
+        if first_group and second_group:
+            return 'True'
+        return 'False'
+
+    df_copy['Adverse'] = df_copy.apply(label_adverse, axis=1)
+
+    transactions = []
+    for _, row in df_copy.iterrows():
+        transactions.append([
+            f"ProductQuality={row['ProductQuality_Bin']}",
+            f"ServiceQuality={row['ServiceQuality_Bin']}",
+            f"Satisfaction={row['Satisfaction_Bin']}",
+            f"Feedback={row['Feedback_Bin']}",
+            f"PurchaseFreq={row['PurchaseFreq_Bin']}",
+            f"Adverse={row['Adverse']}"
+        ])
+
+    from mlxtend.preprocessing import TransactionEncoder
+    from mlxtend.frequent_patterns import apriori, association_rules
+
+    te = TransactionEncoder()
+    te_array = te.fit(transactions).transform(transactions)
+    df_encoded = pd.DataFrame(te_array, columns=te.columns_)
+
+    frequent_itemsets = apriori(df_encoded, min_support=0.1, use_colnames=True)
+    rules = association_rules(frequent_itemsets, metric="confidence", min_threshold=0.6)
+
+    adverse_rules = rules[rules['consequents'].astype(str).str.contains("Adverse=True")]
+    adverse_rules = adverse_rules.sort_values(by="lift", ascending=False)
+
+    adverse_rules['antecedents'] = adverse_rules['antecedents'].apply(lambda x: list(x))
+    adverse_rules['consequents'] = adverse_rules['consequents'].apply(lambda x: list(x))
+
+    top_rules = adverse_rules[['antecedents', 'consequents', 'support', 'confidence', 'lift']].head(10)
+
+    return jsonify(top_rules.to_dict(orient='records'))
+
 @app.route('/api/behavior-stats', methods=['GET'])
 def get_behavior_stats():
     try:
+        if 'BehaviorType' not in df.columns:
+            raise KeyError("'BehaviorType' column not found")
+
         total_customers = len(df)
         adverse_customers = df[df['BehaviorType'] == 'Adverse']
         normal_customers = df[df['BehaviorType'] == 'Normal']
@@ -109,6 +216,27 @@ def get_behavior_stats():
     except Exception as e:
         print("Error in calculating behavior stats:", e)
         return jsonify({"error": "Internal server error"}), 500
+    
+@app.route('/api/adverse-customers', methods=['GET'])
+def get_adverse_customers():
+    # Filter adverse customers
+    adverse_customers = df[df['BehaviorType'] == 'Adverse']
+
+    # Pagination parameters
+    page = int(request.args.get('page', 1))
+    limit = int(request.args.get('limit', 50))
+    start = (page - 1) * limit
+    end = start + limit
+
+    # Paginate adverse customers
+    paginated = adverse_customers.iloc[start:end]
+
+    return jsonify({
+        "total_records": len(adverse_customers),
+        "page": page,
+        "limit": limit,
+        "data": paginated.to_dict(orient='records')
+    })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
