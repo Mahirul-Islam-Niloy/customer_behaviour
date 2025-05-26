@@ -33,9 +33,16 @@ def preprocess_data():
                 row['LoyaltyLevel'] == 'Gold' and
                 row['PurchaseFrequency'] < 14
             )
+            partially_adverse_condition = (
+                (row['ProductQuality'] < 4 and row['FeedbackScore'] in ['High', 'Medium']) or
+                (row['ServiceQuality'] < 5 and row['SatisfactionScore'] > 90)
+            )
             if first_group and second_group:
                 return 'Adverse'
-            return 'Normal'
+            elif partially_adverse_condition:
+                return 'Partially Adverse'
+            else:
+                return 'Normal'
 
         df['BehaviorType'] = df.apply(label_adverse, axis=1)
         print("BehaviorType column created successfully.")
@@ -203,13 +210,16 @@ def get_behavior_stats():
 
         total_customers = len(df)
         adverse_customers = df[df['BehaviorType'] == 'Adverse']
+        partially_adverse_customers = df[df['BehaviorType'] == 'Partially Adverse']
         normal_customers = df[df['BehaviorType'] == 'Normal']
 
         adverse_percentage = (len(adverse_customers) / total_customers) * 100
+        partially_adverse_percentage = (len(partially_adverse_customers) / total_customers) * 100
         normal_percentage = (len(normal_customers) / total_customers) * 100
 
         return jsonify({
             "adverse_percentage": adverse_percentage,
+            "partially_adverse_percentage": partially_adverse_percentage,
             "normal_percentage": normal_percentage,
             "total_customers": total_customers
         })
