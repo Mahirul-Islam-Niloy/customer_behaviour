@@ -142,13 +142,14 @@ def get_pattern_rules():
     df_copy = df.copy()
 
     def bin_quality(x):
-        return 'High' if x >= 7 else 'Low'
+        return 'High' if x >= 9 else 'Low'
 
     def bin_satisfaction(x):
-        return 'High' if x >= 70 else 'Low'
+        return 'High' if x >= 90 else 'Low'
 
     def bin_frequency(x):
-        return 'High' if x >= 5 else 'Low'
+        return 'High' if x >= 15 else 'Low'
+    
 
     df_copy['ProductQuality_Bin'] = df_copy['ProductQuality'].apply(bin_quality)
     df_copy['ServiceQuality_Bin'] = df_copy['ServiceQuality'].apply(bin_quality)
@@ -247,6 +248,21 @@ def get_adverse_customers():
         "limit": limit,
         "data": paginated.to_dict(orient='records')
     })
+@app.route('/api/behavior-rules', methods=['GET'])
+def get_behavior_rules():
+    rules = {
+        "Adverse": [
+            "ProductQuality >= 9 AND FeedbackScore in ['Low', 'Medium']",
+            "ServiceQuality >= 9 AND SatisfactionScore < 90",
+            "LoyaltyLevel == 'Gold' AND PurchaseFrequency < 14"
+        ],
+        "Partially Adverse": [
+            "ProductQuality < 4 AND FeedbackScore in ['High', 'Medium']",
+            "ServiceQuality < 5 AND SatisfactionScore > 90"
+        ]
+    }
+    return jsonify(rules)
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
