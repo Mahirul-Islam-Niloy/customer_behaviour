@@ -230,16 +230,16 @@ def get_behavior_stats():
     
 @app.route('/api/adverse-customers', methods=['GET'])
 def get_adverse_customers():
-    # Filter adverse customers
+   
     adverse_customers = df[df['BehaviorType'] == 'Adverse']
 
-    # Pagination parameters
+   
     page = int(request.args.get('page', 1))
     limit = int(request.args.get('limit', 50))
     start = (page - 1) * limit
     end = start + limit
 
-    # Paginate adverse customers
+    
     paginated = adverse_customers.iloc[start:end]
 
     return jsonify({
